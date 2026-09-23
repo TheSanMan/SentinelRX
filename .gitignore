@@ -69,3 +69,4 @@ data/
 .Rhistory
 mcp_config.json
 deploy/Caddyfile
+deploy/.access.txt
