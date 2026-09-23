@@ -1,4 +1,4 @@
-YOUR_SUBDOMAIN.duckdns.org {
+sentinelrx.VM_PUBLIC_IP.sslip.io {
     basic_auth {
         friend REPLACE_WITH_CADDY_PASSWORD_HASH
     }
