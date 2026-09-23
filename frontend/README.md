@@ -1,14 +1,18 @@
 # SentinelRx frontend
 
-A medication reference workspace built with React, TypeScript, and Vite.
+A medication reference workspace with three tools: a saved list and interaction check, a label scanner, and a DrugBank-backed question assistant. Each browser stores its own medication list in local storage; lists are not synchronized across devices.
+
+From the repository root, install the Python dependencies and run the API with `python -m uvicorn src.api:app --host 127.0.0.1 --port 8000`. The API requires a licensed DrugBank SQLite file at `data/drugbank.db` and the `tesseract` executable for label scans.
+
+From this directory:
 
 ```bash
 npm ci
-npm run dev
+npm run dev -- --host 127.0.0.1 --port 5174
 ```
 
-The Vite server proxies `/api` to the Python service at `127.0.0.1:8000`. To start that service, run `python -m uvicorn src.api:app --host 127.0.0.1 --port 8000` from the repository root with the Python dependencies installed and DrugBank database available. The interface still renders and reports service errors when the API is offline.
+Vite proxies `/api` to port 8000. Set `VITE_API_PROXY_TARGET` to a different local API URL if needed. The interface still renders and reports service errors when the API is offline.
 
-Run `npm run build` and `npm run lint` before committing. See [DESIGN.md](./DESIGN.md) for the palette, animation, and accessibility notes.
+Run `npm run build` and `npm run lint` before committing. See [DESIGN.md](./DESIGN.md) for the palette and interaction notes. The production build includes a manifest and service worker for Home Screen installation over HTTPS. The service worker caches the app shell only; database search, scans, and answers require a live server.
 
-The current backend uses a shared demo medication session and is not suitable for personal medical records.
+The API keeps no shared medication session.

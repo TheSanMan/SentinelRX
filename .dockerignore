@@ -1,0 +1,30 @@
+# Git
+.git
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv
+.env
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+
+# Licensed application data belongs in a private read-only volume, not an image.
+data/
+*.db
+*.xml
+import_stdout.log
+stderr_capture.log
+stdout_capture.log
+
+# Mac OS
+.DS_Store

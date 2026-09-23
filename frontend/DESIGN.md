@@ -14,10 +14,10 @@ https://github.com/radix-ui/colors/blob/main/src/light.ts
 - Teal 11 `#008573`: interactive accents
 - Teal 12 `#0d3d38`: primary controls and branding
 
-The visual direction combines editorial serif headings with a restrained system sans-serif, fine rules, custom SVG icons, and an orbital scientific illustration. No remote fonts or illustration services are required.
+The dark forest header and pale Sage canvas give the medication tools more contrast and visual weight. Teal marks actions and selected views; warm white cards hold results. Typography favors readable sizes over decorative taglines. No remote fonts or illustration services are required.
 
-The illustration responds to pointer movement. Orbital motion, scan-line hover feedback, and short entry transitions respect reduced-motion preferences. A visible motion control pauses decorative animation. Navigation, forms, suggested questions, the guide, and upload controls are keyboard accessible.
+The former sidebar only scrolled between sections on one page. It is replaced by three distinct tool views and a mobile tab bar. The guide remains in a dialog. Motion is limited to transitions and loading indicators and respects reduced-motion preferences. Navigation, forms, suggested questions, the guide, and upload controls are keyboard accessible.
 
-Run `npm ci` and `npm run dev -- --host 127.0.0.1 --port 5174` for live updates. Vite proxies `/api` to the existing Python backend on `127.0.0.1:8000`. Run `npm run build` and `npm run lint` to validate the frontend.
+Run `npm ci` and `npm run dev -- --host 127.0.0.1 --port 5174` for live updates. Vite proxies `/api` to the Python backend on `127.0.0.1:8000`, or to `VITE_API_PROXY_TARGET` if set. Run `npm run build` and `npm run lint` to validate the frontend.
 
-Backend availability is reported explicitly. The existing API still uses a shared demo session; the redesign does not add authentication or persistence. Label results require user review before adding to the list. Chat buffers complete SSE frames and displays interrupted requests as errors rather than successful responses.
+Backend availability is reported explicitly. Medication lists persist on each device, and the API does not keep a shared session. Label results require user review before adding to the list. The assistant retrieves DrugBank records and recorded interactions; it does not require a remote model service.

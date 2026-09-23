@@ -1,253 +1,38 @@
-import { useState, useRef, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import Icon from "./Icon";
-interface Message {
-  role: "user" | "assistant";
-  content: string;
-  isError?: boolean;
-}
-interface StreamEvent {
-  type: "thinking" | "tool_use" | "tool_result" | "delta" | "done" | "error";
-  content?: string;
-  tool?: string;
-}
-const suggestions = [
-  "What should I know about Metformin?",
-  "Can Aspirin and Warfarin interact?",
-  "What are food interactions?",
-];
-export default function ChatComponent() {
+import type { Medication } from "./types";
+
+type Message = { role: "user" | "assistant"; content: string; error?: boolean };
+interface Reply { answer: string; referenced_drug_ids: string[] }
+
+export default function ChatComponent({ meds }: { meds: Medication[] }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [status, setStatus] = useState("");
-  const contentRef = useRef<HTMLDivElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [contextIds, setContextIds] = useState<string[]>([]);
+  const end = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const controller = useRef<AbortController | null>(null);
-  useEffect(() => {
-    if (messages.length && contentRef.current)
-      contentRef.current.scrollTop = contentRef.current.scrollHeight;
-  }, [messages, status]);
-  useEffect(() => () => controller.current?.abort(), []);
-  async function sendMessage() {
-    if (!input.trim() || isLoading) return;
-    const userMsg = input.trim();
-    setInput("");
-    setIsLoading(true);
-    setStatus("Reading your question…");
-    setMessages((previous) => [
-      ...previous,
-      { role: "user", content: userMsg },
-      { role: "assistant", content: "" },
-    ]);
-    const abort = new AbortController();
-    controller.current = abort;
-    const timeout = window.setTimeout(() => abort.abort(), 90000);
-    let current = "";
-    const update = (content: string, isError = false) =>
-      setMessages((previous) => [
-        ...previous.slice(0, -1),
-        { role: "assistant", content, isError },
-      ]);
+  useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [messages, busy]);
+  const suggestions = meds.length >= 2 ? ["Check interactions in my list", "Are there food interactions with my medications?", "Summarize the drugs in my list"] : meds.length ? [`What should I know about ${meds[0].name}?`, "Are there food interactions with my medication?", "What is in my list?"] : ["What should I know about metformin?", "Can aspirin and warfarin interact?", "What are food interactions with warfarin?"];
+
+  async function ask(question: string) {
+    if (!question.trim() || busy) return;
+    setInput(""); setBusy(true);
+    setMessages(previous => [...previous, { role: "user", content: question }, { role: "assistant", content: "" }]);
     try {
-      const response = await fetch("/api/chat/stream", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMsg }),
-        signal: abort.signal,
-      });
-      if (!response.ok || !response.body)
-        throw new Error(
-          "The reference assistant is unavailable. Please try again when the service is connected.",
-        );
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let complete = false;
-      while (!complete) {
-        const { done, value } = await reader.read();
-        buffer += decoder.decode(value, { stream: !done });
-        buffer = buffer.replace(/\r\n/g, "\n");
-        let boundary: number;
-        while ((boundary = buffer.indexOf("\n\n")) !== -1) {
-          const frame = buffer.slice(0, boundary);
-          buffer = buffer.slice(boundary + 2);
-          const payload = frame
-            .split("\n")
-            .filter((line) => line.startsWith("data:"))
-            .map((line) => line.slice(5).trimStart())
-            .join("\n");
-          if (!payload) continue;
-          if (payload === "[DONE]") {
-            complete = true;
-            break;
-          }
-          const event: StreamEvent = JSON.parse(payload);
-          if (event.type === "delta") {
-            current += event.content ?? "";
-            update(current);
-            setStatus("Writing a response…");
-          } else if (event.type === "thinking")
-            setStatus("Reading your question…");
-          else if (event.type === "tool_use")
-            setStatus("Consulting medication records…");
-          else if (event.type === "tool_result")
-            setStatus("Reviewing the results…");
-          else if (event.type === "error")
-            throw new Error(
-              "The assistant could not complete this request. Please check the service connection and try again.",
-            );
-          else if (event.type === "done") complete = true;
-        }
-        if (done) break;
-      }
-      await reader.cancel();
-      if (!complete)
-        throw new Error(
-          "The connection ended before the response was complete. Please try again.",
-        );
-      if (!current)
-        throw new Error("No response was returned. Please try again.");
+      const response = await fetch("/api/assistant/reply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: question, drug_ids: meds.map(med => med.drugbank_id), context_drug_ids: contextIds }), signal: AbortSignal.timeout(25000) });
+      const data: Reply & { detail?: string } = await response.json().catch(() => ({ answer: "", referenced_drug_ids: [] }));
+      if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "The DrugBank service is unavailable.");
+      if (!data.answer) throw new Error("The assistant returned an empty answer.");
+      setContextIds(data.referenced_drug_ids || []);
+      setMessages(previous => [...previous.slice(0, -1), { role: "assistant", content: data.answer }]);
     } catch (cause) {
-      update(
-        cause instanceof Error && cause.name === "Error"
-          ? cause.message
-          : "The connection was interrupted. Please try again.",
-        true,
-      );
-    } finally {
-      window.clearTimeout(timeout);
-      controller.current = null;
-      setIsLoading(false);
-      setStatus("");
-    }
+      setMessages(previous => [...previous.slice(0, -1), { role: "assistant", content: cause instanceof Error && cause.name === "Error" ? cause.message : "The request timed out. Please try again.", error: true }]);
+    } finally { setBusy(false); }
   }
-  return (
-    <section
-      className="panel chat-panel"
-      id="assistant"
-      aria-labelledby="assistant-title"
-    >
-      <div className="panel-header">
-        <div className="panel-title">
-          <Icon name="conversation" size={23} />
-          <div>
-            <div className="panel-kicker">MAKE SENSE OF THE DETAILS</div>
-            <h2 id="assistant-title">The reference desk</h2>
-          </div>
-        </div>
-        <span className="reference-label">AI ASSISTED</span>
-      </div>
-      <div className="chat-content" ref={contentRef}>
-        {messages.length === 0 ? (
-          <div className="chat-welcome">
-            <div className="assistant-symbol">
-              <Icon name="branch" size={23} />
-            </div>
-            <h3>
-              Good questions lead
-              <br />
-              to better understanding.
-            </h3>
-            <p>
-              Explore medication information and recorded interactions. A useful
-              place to start, before a conversation with your care team.
-            </p>
-            <div className="suggestion-label">A FEW PLACES TO START</div>
-            {suggestions.map((question) => (
-              <button
-                className="suggestion"
-                key={question}
-                onClick={() => {
-                  setInput(question);
-                  inputRef.current?.focus();
-                }}
-              >
-                {question}
-                <Icon name="arrow" size={15} />
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div role="log" aria-label="Conversation">
-            {messages.map(
-              (message, index) =>
-                message.content && (
-                  <div
-                    key={index}
-                    className={`message ${message.role} ${message.isError ? "error" : ""}`}
-                  >
-                    <div className="message-label">
-                      {message.role === "user"
-                        ? "YOUR QUESTION"
-                        : message.isError
-                          ? "UNABLE TO RESPOND"
-                          : "REFERENCE DESK"}
-                    </div>
-                    <div className="message-body">
-                      <ReactMarkdown>{message.content}</ReactMarkdown>
-                    </div>
-                  </div>
-                ),
-            )}
-          </div>
-        )}
-        <div role="status">
-          {status && (
-            <div className="chat-status">
-              <Icon name="spinner" className="spin" size={13} />
-              {status}
-            </div>
-          )}
-        </div>
-      </div>
-      <form
-        className="chat-composer"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void sendMessage();
-        }}
-      >
-        <div className="composer-box">
-          <label className="sr-only" htmlFor="chat-question">
-            Ask a medication question
-          </label>
-          <textarea
-            id="chat-question"
-            ref={inputRef}
-            rows={2}
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            disabled={isLoading}
-            placeholder="What would you like to understand?"
-            onKeyDown={(event) => {
-              if (
-                event.key === "Enter" &&
-                !event.shiftKey &&
-                !event.nativeEvent.isComposing
-              ) {
-                event.preventDefault();
-                void sendMessage();
-              }
-            }}
-          />
-          <button
-            className="send-button"
-            aria-label="Send question"
-            disabled={isLoading || !input.trim()}
-          >
-            {isLoading ? (
-              <Icon name="spinner" size={16} className="spin" />
-            ) : (
-              <Icon name="arrowUp" size={18} />
-            )}
-          </button>
-        </div>
-        <div className="composer-caption">
-          <span>AI can make mistakes. Verify important details.</span>
-          <span>↵ to send</span>
-        </div>
-      </form>
-    </section>
-  );
+  return <section className="feature-card assistant-view" aria-labelledby="assistant-heading"><div className="assistant-heading"><div><span className="overline">DATABASE ASSISTANT</span><h2 id="assistant-heading">Ask about medications</h2><p>Answers come from the local DrugBank records and include your saved list when relevant.</p></div><span className="context-pill"><Icon name="capsule" size={16}/>{meds.length} in context</span></div>
+    <div className="conversation" role="log" aria-label="Conversation">{messages.length === 0 ? <div className="assistant-intro"><div className="assistant-icon"><Icon name="conversation" size={30}/></div><h3>What would you like to know?</h3><p>Ask about a drug, your list, recorded interactions, or food warnings.</p><div className="prompt-list">{suggestions.map(question => <button key={question} onClick={() => { setInput(question); inputRef.current?.focus(); }}>{question}<Icon name="arrow" size={18}/></button>)}</div></div> : messages.map((message, index) => message.content && <article key={index} className={`chat-message ${message.role} ${message.error ? "error" : ""}`}><span>{message.role === "user" ? "YOU" : "DRUGBANK ASSISTANT"}</span><div className="markdown"><ReactMarkdown>{message.content}</ReactMarkdown></div></article>)}{busy && <div className="thinking" role="status"><Icon name="spinner" size={18} className="spin"/>Reviewing DrugBank records…</div>}<div ref={end}/></div>
+    <form className="assistant-composer" onSubmit={event => { event.preventDefault(); void ask(input); }}><label htmlFor="assistant-input" className="sr-only">Ask a medication question</label><textarea id="assistant-input" ref={inputRef} value={input} onChange={event => setInput(event.target.value)} rows={2} placeholder="Ask about a medication or your list…" disabled={busy} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void ask(input); } }}/><button className="primary-button" type="submit" disabled={!input.trim() || busy}><Icon name="arrowUp" size={18}/>Ask</button></form><p className="assistant-caveat">Reference data can be incomplete. Do not change medication use based on this tool alone.</p>
+  </section>;
 }

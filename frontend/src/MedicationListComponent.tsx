@@ -1,270 +1,99 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import type { FormEvent } from "react";
+import { useEffect, useState } from "react";
 import Icon from "./Icon";
+import type { DrugMatch, Interaction, Medication } from "./types";
 
-interface Medication {
-  drugbank_id: string;
-  name: string;
+interface DrugDetails extends Medication {
+  description?: string;
+  indication?: string;
+  drug_interaction_count: number;
+  food_interactions: string[];
 }
-interface Interaction {
-  drug1: { name: string };
-  drug2: { name: string };
-  description: string;
-}
-export default function MedicationListComponent({
-  refreshKey,
-}: {
-  refreshKey: number;
+
+type CheckState = "idle" | "checking" | "ready" | "error";
+
+export default function MedicationListComponent({ meds, onAdd, onRemove, onAsk }: {
+  meds: Medication[];
+  onAdd: (drug: Medication) => void;
+  onRemove: (id: string) => void;
+  onAsk: () => void;
 }) {
-  const [meds, setMeds] = useState<Medication[]>([]);
+  const [query, setQuery] = useState("");
+  const [matches, setMatches] = useState<DrugMatch[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState("");
   const [interactions, setInteractions] = useState<Interaction[]>([]);
-  const [newMed, setNewMed] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<"loading" | "ready" | "error">(
-    "loading",
-  );
-  const [error, setError] = useState("");
-  const latestRequest = useRef(0);
-  const sessionPath = "/api/session/demo-user";
+  const [checkState, setCheckState] = useState<CheckState>("idle");
+  const [checkError, setCheckError] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [details, setDetails] = useState<DrugDetails | null>(null);
+  const ids = meds.map(med => med.drugbank_id).join(",");
 
-  const fetchData = useCallback(async () => {
-    const requestId = ++latestRequest.current;
-    setStatus("loading");
-    setInteractions([]);
-    try {
-      const response = await fetch(`${sessionPath}/medications`, {
-        signal: AbortSignal.timeout(12000),
-      });
-      if (!response.ok)
-        throw new Error(
-          "Medication service unavailable. Your list could not be loaded.",
-        );
-      const data = await response.json();
-      if (!Array.isArray(data.medications))
-        throw new Error(
-          "The medication service returned an unexpected response.",
-        );
-      let checked: Interaction[] = [];
-      if (data.medications.length >= 2) {
-        const interactionResponse = await fetch(
-          `${sessionPath}/check-all-interactions`,
-          { method: "POST", signal: AbortSignal.timeout(12000) },
-        );
-        if (!interactionResponse.ok)
-          throw new Error(
-            "The interaction check could not be completed. Please try again.",
-          );
-        const interactionData = await interactionResponse.json();
-        if (!Array.isArray(interactionData.interactions))
-          throw new Error(
-            "The interaction check returned an unexpected response.",
-          );
-        checked = interactionData.interactions;
-      }
-      if (requestId !== latestRequest.current) return;
-      setMeds(data.medications);
-      setInteractions(checked);
-      setStatus("ready");
-      setError("");
-    } catch (cause) {
-      if (requestId !== latestRequest.current) return;
-      setStatus("error");
-      setError(
-        cause instanceof Error &&
-          cause.name !== "TypeError" &&
-          cause.name !== "TimeoutError"
-          ? cause.message
-          : "Medication service unavailable. Please try again when connected.",
-      );
-    }
-  }, []);
-  const invalidateRequest = useCallback(() => {
-    latestRequest.current++;
-  }, []);
   useEffect(() => {
-    void fetchData();
-    return invalidateRequest;
-  }, [fetchData, refreshKey, invalidateRequest]);
+    if (query.trim().length < 2) { setMatches([]); setSearching(false); setSearchError(""); return; }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setSearching(true); setSearchError("");
+      try {
+        const response = await fetch(`/api/drugs/search?q=${encodeURIComponent(query.trim())}`, { signal: controller.signal });
+        if (!response.ok) throw new Error("Search is unavailable. Check the API connection.");
+        const data = await response.json();
+        if (!Array.isArray(data)) throw new Error("Search returned an invalid response.");
+        setMatches(data);
+      } catch (cause) {
+        if (controller.signal.aborted) return;
+        setMatches([]);
+        setSearchError(cause instanceof Error && cause.message.startsWith("Search") ? cause.message : "Search is unavailable. Check the API connection.");
+      } finally { if (!controller.signal.aborted) setSearching(false); }
+    }, 250);
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, [query]);
 
-  async function addMed(event: FormEvent) {
-    event.preventDefault();
-    if (!newMed.trim() || busy) return;
-    setBusy(true);
-    setError("");
-    try {
-      const response = await fetch(`${sessionPath}/medications`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ drug_name: newMed.trim() }),
-        signal: AbortSignal.timeout(12000),
-      });
-      if (!response.ok)
-        throw new Error(
-          response.status === 404
-            ? "No match found. Check the spelling or try the active ingredient."
-            : "Could not add this medication. Please try again.",
-        );
-      setNewMed("");
-      await fetchData();
-    } catch (cause) {
-      setError(
-        cause instanceof Error && cause.name === "Error"
-          ? cause.message
-          : "Could not connect to the medication service.",
-      );
-    } finally {
-      setBusy(false);
-    }
+  useEffect(() => {
+    if (meds.length < 2) { setInteractions([]); setCheckState("idle"); return; }
+    const controller = new AbortController();
+    setCheckState("checking"); setCheckError(""); setInteractions([]);
+    fetch("/api/interactions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ drug_ids: ids.split(",") }), signal: controller.signal })
+      .then(async response => { if (!response.ok) throw new Error("Interaction check unavailable. Try again later."); return response.json(); })
+      .then(data => { if (!Array.isArray(data.interactions)) throw new Error("Interaction check returned an invalid response."); setInteractions(data.interactions); setCheckState("ready"); })
+      .catch(() => { if (!controller.signal.aborted) { setCheckState("error"); setCheckError("Interaction check unavailable. Your list is saved on this device; try again later."); } });
+    return () => controller.abort();
+  }, [ids, meds.length]);
+
+  useEffect(() => {
+    if (!selectedId) { setDetails(null); return; }
+    const controller = new AbortController();
+    setDetails(null);
+    fetch(`/api/drugs/${selectedId}`, { signal: controller.signal })
+      .then(async response => { if (!response.ok) throw new Error(); return response.json(); })
+      .then(data => setDetails(data))
+      .catch(() => { if (!controller.signal.aborted) setDetails(null); });
+    return () => controller.abort();
+  }, [selectedId]);
+
+  function add(drug: DrugMatch) {
+    onAdd({ drugbank_id: drug.drugbank_id, name: drug.name });
+    setSelectedId(drug.drugbank_id); setQuery(""); setMatches([]);
   }
-  async function removeMed(id: string) {
-    setBusy(true);
-    setError("");
-    try {
-      const response = await fetch(
-        `${sessionPath}/medications/${encodeURIComponent(id)}`,
-        { method: "DELETE", signal: AbortSignal.timeout(12000) },
-      );
-      if (!response.ok)
-        throw new Error("Could not remove this medication. Please try again.");
-      await fetchData();
-    } catch {
-      setError("Could not remove this medication. Please try again.");
-    } finally {
-      setBusy(false);
-    }
+  function remove(id: string) {
+    onRemove(id);
+    if (selectedId === id) setSelectedId(null);
   }
-  return (
-    <section className="panel" id="medications" aria-labelledby="meds-title">
-      <div className="panel-header">
-        <div className="panel-title">
-          <Icon name="capsule" size={23} />
-          <div>
-            <div className="panel-kicker">BUILD YOUR PICTURE</div>
-            <h2 id="meds-title">Your medication list</h2>
-          </div>
-        </div>
-        <span className="count-badge">
-          {String(meds.length).padStart(2, "0")}
-        </span>
-      </div>
-      <div className="panel-body">
-        <p className="section-description">
-          Start with a name. We’ll look for the connections.
-        </p>
-        <form className="input-row" onSubmit={addMed}>
-          <div className="input-wrap">
-            <Icon name="search" size={16} />
-            <label className="sr-only" htmlFor="medication-name">
-              Medication name
-            </label>
-            <input
-              id="medication-name"
-              value={newMed}
-              onChange={(event) => setNewMed(event.target.value)}
-              placeholder="e.g. Aspirin or Metformin"
-              autoComplete="off"
-              disabled={busy}
-            />
-          </div>
-          <button className="primary-button" disabled={busy || !newMed.trim()}>
-            {busy ? (
-              <Icon name="spinner" className="spin" size={15} />
-            ) : (
-              <Icon name="plus" size={15} />
-            )}{" "}
-            Add
-          </button>
-        </form>
-        {error && (
-          <div className="notice error" role="alert">
-            <Icon name="info" size={15} />
-            <span>{error}</span>
-            {status === "error" && (
-              <button className="text-button" onClick={() => void fetchData()}>
-                Retry
-              </button>
-            )}
-          </div>
-        )}
-        <div className="list-heading">
-          <span>MEDICATIONS IN THIS WORKSPACE</span>
-          <span>
-            {status === "loading" ? "LOADING…" : `${meds.length} ITEMS`}
-          </span>
-        </div>
-        {meds.length === 0 ? (
-          <div className="medication-empty">
-            <div className="empty-art">
-              <Icon name="capsule" size={26} />
-            </div>
-            <h3>A good place to begin.</h3>
-            <p>
-              Add your first medication above, or read a label with the tool
-              below.
-            </p>
-          </div>
-        ) : (
-          <div>
-            {meds.map((med) => (
-              <div className="med-row" key={med.drugbank_id}>
-                <Icon name="capsule" />
-                <div>
-                  <strong>{med.name}</strong>
-                  <small>{med.drugbank_id}</small>
-                </div>
-                <button
-                  className="icon-button"
-                  aria-label={`Remove ${med.name}`}
-                  disabled={busy}
-                  onClick={() => void removeMed(med.drugbank_id)}
-                >
-                  <Icon name="close" size={16} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-        <div aria-live="polite">
-          {status === "loading" && meds.length >= 2 && (
-            <div className="notice">
-              <Icon name="spinner" className="spin" size={15} />
-              Checking recorded interactions…
-            </div>
-          )}
-          {status === "ready" &&
-            meds.length >= 2 &&
-            interactions.length === 0 && (
-              <div className="notice success">
-                <Icon name="check" size={15} />
-                <span>
-                  No recorded interactions found for this list. This does not
-                  rule out every risk.
-                </span>
-              </div>
-            )}
-          {status === "ready" && interactions.length > 0 && (
-            <div className="interaction-list">
-              <h3>
-                {interactions.length} recorded{" "}
-                {interactions.length === 1 ? "interaction" : "interactions"} to
-                review
-              </h3>
-              {interactions.map((interaction, index) => (
-                <article key={index}>
-                  <strong>
-                    {interaction.drug1.name} + {interaction.drug2.name}
-                  </strong>
-                  <p>{interaction.description}</p>
-                </article>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-      <div className="panel-bottom">
-        <Icon name="branch" size={14} />
-        <span>Add two or more medications to check interactions.</span>
-      </div>
+  return <div className="medication-layout">
+    <section className="feature-card medication-card" aria-labelledby="list-heading">
+      <div className="card-heading"><div><span className="overline">01 / YOUR LIST</span><h2 id="list-heading">My medications <span className="count-pill">{meds.length}</span></h2></div></div>
+      <div className="search-box"><Icon name="search" size={22}/><label htmlFor="drug-search" className="sr-only">Find a medication</label><input id="drug-search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search medication name or brand" autoComplete="off"/><span className="search-state">{searching ? "Searching…" : ""}</span></div>
+      {searchError && <p className="inline-error" role="alert">{searchError}</p>}
+      {query.trim().length >= 2 && !searchError && !searching && <div className="search-results" aria-label="Medication search results">{matches.length ? matches.map(drug => <button key={drug.drugbank_id} className="search-result" onClick={() => add(drug)} disabled={meds.length >= 25 || meds.some(item => item.drugbank_id === drug.drugbank_id)}><span><strong>{drug.name}</strong><small>{drug.matched_term && drug.matched_term.toLowerCase() !== drug.name.toLowerCase() ? `Matched ${drug.matched_term} · ` : ""}{drug.drugbank_id}{drug.match_score < 100 ? ` · ${Math.round(drug.match_score)}% match` : ""}</small></span><span>{meds.some(item => item.drugbank_id === drug.drugbank_id) ? "Added" : meds.length >= 25 ? "List full" : "+ Add"}</span></button>) : <p className="search-no-match">No matches. Try a generic or brand name.</p>}</div>}
+      <div className="med-list">{meds.length === 0 ? <div className="empty-state"><Icon name="capsule" size={38}/><h3>No medications yet</h3><p>Search above to add your first medication. Your list stays on this device.</p></div> : meds.map(med => <div className={`medication-row ${selectedId === med.drugbank_id ? "selected" : ""}`} key={med.drugbank_id}><button className="medication-name" onClick={() => setSelectedId(med.drugbank_id)} aria-label={`View ${med.name} details`}><Icon name="capsule" size={22}/><span><strong>{med.name}</strong><small>{med.drugbank_id}</small></span><Icon name="arrow" size={18}/></button><button className="remove-button" aria-label={`Remove ${med.name}`} onClick={() => remove(med.drugbank_id)}><Icon name="close" size={17}/></button></div>)}</div>
+      {meds.length >= 25 && <p className="inline-error">The list supports up to 25 medications.</p>}
+      {meds.length > 0 && <p className="storage-note"><Icon name="info" size={16}/>Saved in this browser. Clearing browser data removes the list.</p>}
     </section>
-  );
+    <div className="insight-column">
+      <section className="feature-card insight-card" aria-labelledby="interactions-heading"><div className="card-heading"><div><span className="overline">02 / CHECK</span><h2 id="interactions-heading">Interactions</h2></div><span className={checkState === "ready" && interactions.length > 0 ? "status-badge attention" : "status-badge"}>{checkState === "checking" ? "Checking" : checkState === "ready" ? `${interactions.length} recorded` : checkState === "error" ? "Unavailable" : "Ready"}</span></div>
+        {meds.length < 2 ? <div className="insight-empty"><Icon name="branch" size={28}/><p>Add two medications to check for recorded interactions.</p></div> : checkState === "checking" ? <p className="insight-empty"><Icon name="spinner" className="spin" size={22}/>Checking your list…</p> : checkState === "error" ? <p className="inline-error" role="alert">{checkError}</p> : interactions.length ? <div className="interaction-items">{interactions.map((item, index) => <article key={`${item.drug_id}-${item.interacting_drug_id}-${index}`}><strong>{item.drug_name} + {item.interacting_drug_name}</strong><p>{item.description}</p></article>)}</div> : <div className="insight-empty success"><Icon name="check" size={28}/><p>No interactions recorded for this list. This does not rule out every risk.</p></div>}
+      </section>
+      <section className="feature-card detail-card" aria-labelledby="detail-heading"><div className="card-heading"><div><span className="overline">03 / EXPLORE</span><h2 id="detail-heading">Medication details</h2></div></div>{details ? <div className="drug-details"><h3>{details.name}</h3><p>{details.description || "No description recorded."}</p>{details.indication && <><h4>Recorded indication</h4><p>{details.indication}</p></>}{details.food_interactions?.length > 0 && <><h4>Food interactions</h4><ul>{details.food_interactions.map((item, index) => <li key={index}>{item}</li>)}</ul></>}<a href={`https://go.drugbank.com/drugs/${details.drugbank_id}`} target="_blank" rel="noreferrer">Open DrugBank record ↗</a></div> : <div className="insight-empty"><Icon name="book" size={27}/><p>{selectedId ? "Loading details…" : "Choose a medication from your list to view its DrugBank record."}</p></div>}</section>
+      <button className="ask-list-button" onClick={onAsk}><Icon name="conversation" size={20}/>Ask about my medications<Icon name="arrow" size={18}/></button>
+    </div>
+  </div>;
 }
