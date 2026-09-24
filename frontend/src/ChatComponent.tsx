@@ -21,14 +21,14 @@ export default function ChatComponent({ meds }: { meds: Medication[] }) {
     setInput(""); setBusy(true);
     setMessages(previous => [...previous, { role: "user", content: question }, { role: "assistant", content: "" }]);
     try {
-      const response = await fetch("/api/assistant/reply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: question, drug_ids: meds.map(med => med.drugbank_id), context_drug_ids: contextIds }), signal: AbortSignal.timeout(120000) });
+      const response = await fetch("/api/assistant/reply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: question, drug_ids: meds.map(med => med.drugbank_id), context_drug_ids: contextIds }), signal: AbortSignal.timeout(95000) });
       const data: Reply & { detail?: string } = await response.json().catch(() => ({ answer: "", referenced_drug_ids: [] }));
       if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "The DrugBank service is unavailable.");
       if (!data.answer) throw new Error("The assistant returned an empty answer.");
       setContextIds(data.referenced_drug_ids || []);
       setMessages(previous => [...previous.slice(0, -1), { role: "assistant", content: data.answer }]);
     } catch (cause) {
-      setMessages(previous => [...previous.slice(0, -1), { role: "assistant", content: cause instanceof Error && cause.name === "Error" ? cause.message : "The request timed out. Please try again.", error: true }]);
+      setMessages(previous => [...previous.slice(0, -1), { role: "assistant", content: cause instanceof Error && cause.name === "Error" ? cause.message : "Sentinel took too long. Try asking about one or two medications, or refresh this page and retry.", error: true }]);
     } finally { setBusy(false); }
   }
   return <section className="feature-card assistant-view" aria-labelledby="assistant-heading"><div className="assistant-heading"><div><span className="overline">SENTINEL · DRUGBANK</span><h2 id="assistant-heading">Ask Sentinel</h2><p>A local open-source model answers from DrugBank records and your saved list.</p></div><span className="context-pill"><Icon name="capsule" size={16}/>{meds.length} in context</span></div>

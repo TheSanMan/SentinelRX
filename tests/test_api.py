@@ -23,7 +23,16 @@ class MedicationWorkflowTests(unittest.TestCase):
         self.assertEqual(answer, "It treats diabetes.")
         payload = post.call_args.kwargs["json"]
         self.assertIn("DB00331", payload["messages"][1]["content"])
-        self.assertEqual(payload["options"]["num_predict"], 180)
+        self.assertEqual(payload["options"]["num_predict"], 120)
+        self.assertEqual(post.call_args.kwargs["timeout"], 70)
+
+    def test_sentinel_falls_back_when_model_times_out(self) -> None:
+        drug = {"drugbank_id": "DB00331", "name": "Metformin"}
+        with (
+            patch.object(api, "sentinel_context", return_value="DrugBank ID: DB00331"),
+            patch.object(api.httpx, "post", side_effect=api.httpx.ReadTimeout("slow")),
+        ):
+            self.assertIsNone(api.ask_sentinel("What is it for?", [drug]))
 
     def test_sentinel_answer_links_the_retrieved_drug(self) -> None:
         drug = {"drugbank_id": "DB00331", "name": "Metformin"}

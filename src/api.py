@@ -277,12 +277,15 @@ def sentinel_context(drugs: list[dict[str, Any]]) -> str:
         fields = [
             f"DrugBank ID: {drug['drugbank_id']}",
             f"Name: {details.get('name', drug['name'])}",
-            f"Description: {clip(details.get('description'), 900)}",
+            f"Description: {clip(details.get('description'), 240)}",
         ]
         if details.get("indication"):
-            fields.append(f"Indication: {clip(details['indication'], 500)}")
+            fields.append(f"Indication: {clip(details['indication'], 160)}")
         if foods:
-            fields.append("Food interactions: " + "; ".join(clip(item, 300) for item in foods[:5]))
+            fields.append(
+                "Food interactions: "
+                + "; ".join(clip(item, 100) for item in foods[:2])
+            )
         records.append("\n".join(fields))
     return "\n\n---\n\n".join(records)
 
@@ -325,9 +328,9 @@ def _ask_sentinel_with_slot(message: str, drugs: list[dict[str, Any]]) -> str | 
                         "content": f"DrugBank records:\n{context}\n\nQuestion: {message}",
                     },
                 ],
-                "options": {"temperature": 0.1, "num_ctx": 4096, "num_predict": 180},
+                "options": {"temperature": 0.1, "num_ctx": 2048, "num_predict": 120},
             },
-            timeout=105,
+            timeout=70,
         )
         response.raise_for_status()
         answer = response.json().get("message", {}).get("content", "").strip()
