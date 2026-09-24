@@ -1,6 +1,6 @@
 # SentinelRX
 
-[Open SentinelRX](https://sentinelrx.147.224.223.212.sslip.io)
+[Open SentinelRX](https://sentinelrx.duckdns.org)
 
 SentinelRX is a medication reference workspace. Search a DrugBank-backed catalog, keep a medication list on your device, review recorded drug and food interactions, scan a label, and ask Sentinel questions about the records. The same repository also provides an MCP server for compatible desktop clients.
 
@@ -30,7 +30,7 @@ Open `http://127.0.0.1:8000`. For live frontend development, run `npm run dev` i
 
 ## Deploy
 
-The production stack uses Docker Compose for the API, Ollama, and Caddy HTTPS proxy. See [DEPLOYMENT.md](DEPLOYMENT.md) for Oracle Always Free setup, the database mount, and iPhone installation. The live URL uses [sslip.io](https://sslip.io/) to resolve the VM's public IP; it will change if that IP changes.
+The production stack uses Docker Compose for the API, Ollama, and Caddy HTTPS proxy. See [DEPLOYMENT.md](DEPLOYMENT.md) for Oracle Always Free setup, the database mount, and iPhone installation. The primary address is `sentinelrx.duckdns.org`; the earlier IP-based address remains available as a fallback. If you used the old address, its browser-local medication list does not automatically appear under the new address.
 
 ## MCP server
 
