@@ -24,7 +24,7 @@ function storedMedications(): Medication[] {
 const views = [
   { id: "medications", label: "Medications", icon: "capsule" },
   { id: "scanner", label: "Scan label", icon: "scan" },
-  { id: "assistant", label: "Ask DrugBank", icon: "conversation" },
+  { id: "assistant", label: "Ask Sentinel", icon: "conversation" },
 ] as const;
 
 function App() {
@@ -53,7 +53,7 @@ function App() {
       <div className="header-actions"><span className="header-count"><Icon name="capsule" size={16}/>{meds.length} {meds.length === 1 ? "medication" : "medications"}</span><button className="header-button" onClick={event => openDialog("guide", event)}><Icon name="info" size={16}/>Guide</button><button className="header-button install-button" onClick={event => openDialog("install", event)}><Icon name="upload" size={16}/>Install on iPhone</button></div>
     </div></header>
     <main id="main-content" className="app-main">
-      <div className="workspace-intro"><div><span className="overline">YOUR WORKSPACE</span><h1>{view === "medications" ? "Medications" : view === "scanner" ? "Scan a label" : "Ask DrugBank"}</h1></div><p>{view === "medications" ? "Build your list and review recorded interactions." : view === "scanner" ? "Read a label, then confirm each medication before adding it." : "Answers grounded in DrugBank and your medication list."}</p></div>
+      <div className="workspace-intro"><div><span className="overline">YOUR WORKSPACE</span><h1>{view === "medications" ? "Medications" : view === "scanner" ? "Scan a label" : "Ask Sentinel"}</h1></div><p>{view === "medications" ? "Build your list and review recorded interactions." : view === "scanner" ? "Read a label, then confirm each medication before adding it." : "Answers grounded in DrugBank and your medication list."}</p></div>
       <nav className="view-tabs" aria-label="Tools">{views.map(item => <button key={item.id} className={view === item.id ? "view-tab selected" : "view-tab"} aria-current={view === item.id ? "page" : undefined} onClick={() => setView(item.id)}><Icon name={item.icon} size={20}/>{item.label}{item.id === "medications" && <span className="tab-count">{meds.length}</span>}</button>)}</nav>
       <div className="view-content" key={view}>{view === "medications" && <MedicationListComponent meds={meds} onAdd={addMedication} onRemove={removeMedication} onAsk={() => setView("assistant")}/>}{view === "scanner" && <ScannerComponent onMedsAdded={drug => { addMedication(drug); setView("medications"); }}/>} {view === "assistant" && <ChatComponent meds={meds}/>}</div>
     </main>

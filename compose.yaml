@@ -2,10 +2,23 @@ services:
   app:
     build: .
     restart: unless-stopped
+    environment:
+      SENTINEL_OLLAMA_URL: http://ollama:11434
+      SENTINEL_MODEL: qwen2.5:1.5b-instruct
     volumes:
       - ./data/drugbank.db:/app/data/drugbank.db:ro
     expose:
       - "8000"
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    environment:
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+    volumes:
+      - ollama_models:/root/.ollama
+    expose:
+      - "11434"
   caddy:
     image: caddy:2
     restart: unless-stopped
@@ -22,3 +35,4 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+  ollama_models:

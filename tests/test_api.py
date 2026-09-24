@@ -5,12 +5,37 @@ from __future__ import annotations
 import asyncio
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from src import api
 
 
 class MedicationWorkflowTests(unittest.TestCase):
+    def test_sentinel_uses_retrieved_records_and_caps_generation(self) -> None:
+        drug = {"drugbank_id": "DB00331", "name": "Metformin"}
+        response = Mock()
+        response.json.return_value = {"message": {"content": "It treats diabetes."}}
+        with (
+            patch.object(api, "sentinel_context", return_value="DrugBank ID: DB00331\nName: Metformin"),
+            patch.object(api.httpx, "post", return_value=response) as post,
+        ):
+            answer = api.ask_sentinel("What is it for?", [drug])
+        self.assertEqual(answer, "It treats diabetes.")
+        payload = post.call_args.kwargs["json"]
+        self.assertIn("DB00331", payload["messages"][1]["content"])
+        self.assertEqual(payload["options"]["num_predict"], 180)
+
+    def test_sentinel_answer_links_the_retrieved_drug(self) -> None:
+        drug = {"drugbank_id": "DB00331", "name": "Metformin"}
+        with (
+            patch.object(api, "get_drugs_by_ids", return_value=[drug]),
+            patch.object(api, "names_in_question", return_value=[]),
+            patch.object(api, "ask_sentinel", return_value="A database-grounded summary."),
+        ):
+            reply = api.answer_question("What is it for?", ["DB00331"], [])
+        self.assertIn("A database-grounded summary.", reply.answer)
+        self.assertIn("go.drugbank.com/drugs/DB00331", reply.answer)
+
     def test_label_candidates_remove_dosage_and_form(self) -> None:
         self.assertIn("METFORMIN", api.candidate_names("METFORMIN HCL 500 MG TABLETS"))
         self.assertNotIn(
