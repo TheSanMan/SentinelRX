@@ -1,5 +1,5 @@
 {
-  "name": "SentinelRx Medication Workspace",
+  "name": "SentinelRx",
   "short_name": "SentinelRx",
   "description": "A medication list, label reader, and DrugBank reference assistant.",
   "start_url": "/",
