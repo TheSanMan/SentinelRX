@@ -14,7 +14,7 @@ export default function ChatComponent({ meds }: { meds: Medication[] }) {
   const end = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [messages, busy]);
-  const suggestions = meds.length >= 2 ? ["Check interactions in my list", "Are there food interactions with my medications?", "Summarize the drugs in my list"] : meds.length ? [`What should I know about ${meds[0].name}?`, "Are there food interactions with my medication?", "What is in my list?"] : ["What should I know about metformin?", "Can aspirin and warfarin interact?", "What are food interactions with warfarin?"];
+  const suggestions = meds.length >= 3 ? ["What shared warnings appear across my medications?", "Check interactions in my list", "Are there food interactions with my medications?"] : meds.length === 2 ? ["Check interactions in my list", "Are there food interactions with my medications?", "Summarize the drugs in my list"] : meds.length ? [`What should I know about ${meds[0].name}?`, "Are there food interactions with my medication?", "What is in my list?"] : ["What should I know about metformin?", "Can aspirin and warfarin interact?", "What are food interactions with warfarin?"];
 
   async function ask(question: string) {
     if (!question.trim() || busy) return;

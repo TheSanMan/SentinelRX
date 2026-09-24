@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import Icon from "./Icon";
-import type { DrugMatch, Interaction, Medication } from "./types";
+import type { DrugMatch, Interaction, Medication, WarningGroup } from "./types";
 
 interface DrugDetails extends Medication {
   description?: string;
@@ -22,6 +22,7 @@ export default function MedicationListComponent({ meds, onAdd, onRemove, onAsk }
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [interactions, setInteractions] = useState<Interaction[]>([]);
+  const [warningGroups, setWarningGroups] = useState<WarningGroup[]>([]);
   const [checkState, setCheckState] = useState<CheckState>("idle");
   const [checkError, setCheckError] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -49,12 +50,12 @@ export default function MedicationListComponent({ meds, onAdd, onRemove, onAsk }
   }, [query]);
 
   useEffect(() => {
-    if (meds.length < 2) { setInteractions([]); setCheckState("idle"); return; }
+    if (meds.length < 2) { setInteractions([]); setWarningGroups([]); setCheckState("idle"); return; }
     const controller = new AbortController();
-    setCheckState("checking"); setCheckError(""); setInteractions([]);
+    setCheckState("checking"); setCheckError(""); setInteractions([]); setWarningGroups([]);
     fetch("/api/interactions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ drug_ids: ids.split(",") }), signal: controller.signal })
       .then(async response => { if (!response.ok) throw new Error("Interaction check unavailable. Try again later."); return response.json(); })
-      .then(data => { if (!Array.isArray(data.interactions)) throw new Error("Interaction check returned an invalid response."); setInteractions(data.interactions); setCheckState("ready"); })
+      .then(data => { if (!Array.isArray(data.interactions) || !Array.isArray(data.warning_groups)) throw new Error("Interaction check returned an invalid response."); setInteractions(data.interactions); setWarningGroups(data.warning_groups); setCheckState("ready"); })
       .catch(() => { if (!controller.signal.aborted) { setCheckState("error"); setCheckError("Interaction check unavailable. Your list is saved on this device; try again later."); } });
     return () => controller.abort();
   }, [ids, meds.length]);
@@ -89,10 +90,14 @@ export default function MedicationListComponent({ meds, onAdd, onRemove, onAsk }
       {meds.length > 0 && <p className="storage-note"><Icon name="info" size={16}/>Saved in this browser. Clearing browser data removes the list.</p>}
     </section>
     <div className="insight-column">
-      <section className="feature-card insight-card" aria-labelledby="interactions-heading"><div className="card-heading"><div><span className="overline">02 / CHECK</span><h2 id="interactions-heading">Interactions</h2></div><span className={checkState === "ready" && interactions.length > 0 ? "status-badge attention" : "status-badge"}>{checkState === "checking" ? "Checking" : checkState === "ready" ? `${interactions.length} recorded` : checkState === "error" ? "Unavailable" : "Ready"}</span></div>
+      {meds.length >= 3 && <section className={`feature-card warning-card ${warningGroups.length ? "has-warnings" : ""}`} aria-labelledby="warning-groups-heading"><div className="card-heading"><div><span className="overline">02 / SHARED WARNINGS</span><h2 id="warning-groups-heading">Repeated warning themes</h2></div>{checkState === "ready" && <span className={warningGroups.length ? "status-badge attention" : "status-badge"}>{warningGroups.length} {warningGroups.length === 1 ? "theme" : "themes"}</span>}</div>
+        {checkState === "checking" ? <p className="warning-card-status"><Icon name="spinner" className="spin" size={20}/>Looking across recorded pairs…</p> : checkState === "error" ? <p className="inline-error" role="alert">{checkError}</p> : checkState === "ready" ? warningGroups.length ? <div className="warning-groups">{warningGroups.map(group => <details key={group.key} className="warning-group"><summary><span><strong>{group.title}</strong><small>Recorded for {group.pairs.length} different medication pairs</small></span><span className="warning-expand">View pairs</span></summary><div className="warning-pairs">{group.pairs.map(pair => <div key={`${pair.drug_id}-${pair.interacting_drug_id}`}><strong>{pair.drug_name} + {pair.interacting_drug_name}</strong><p>{pair.description}</p></div>)}</div></details>)}</div> : <p className="warning-card-status">No specific theme repeats across the recorded pairs.</p> : null}
+        <p className="warning-caveat">These are repeated pairwise warnings, not a measure of the combined effect. Review all interactions below.</p>
+      </section>}
+      <section className="feature-card insight-card" aria-labelledby="interactions-heading"><div className="card-heading"><div><span className="overline">CHECK THE PAIRS</span><h2 id="interactions-heading">Interactions</h2></div><span className={checkState === "ready" && interactions.length > 0 ? "status-badge attention" : "status-badge"}>{checkState === "checking" ? "Checking" : checkState === "ready" ? `${interactions.length} recorded` : checkState === "error" ? "Unavailable" : "Ready"}</span></div>
         {meds.length < 2 ? <div className="insight-empty"><Icon name="branch" size={28}/><p>Add two medications to check for recorded interactions.</p></div> : checkState === "checking" ? <p className="insight-empty"><Icon name="spinner" className="spin" size={22}/>Checking your list…</p> : checkState === "error" ? <p className="inline-error" role="alert">{checkError}</p> : interactions.length ? <div className="interaction-items">{interactions.map((item, index) => <article key={`${item.drug_id}-${item.interacting_drug_id}-${index}`}><strong>{item.drug_name} + {item.interacting_drug_name}</strong><p>{item.description}</p></article>)}</div> : <div className="insight-empty success"><Icon name="check" size={28}/><p>No interactions recorded for this list. This does not rule out every risk.</p></div>}
       </section>
-      <section className="feature-card detail-card" aria-labelledby="detail-heading"><div className="card-heading"><div><span className="overline">03 / EXPLORE</span><h2 id="detail-heading">Medication details</h2></div></div>{details ? <div className="drug-details"><h3>{details.name}</h3><p>{details.description || "No description recorded."}</p>{details.indication && <><h4>Recorded indication</h4><p>{details.indication}</p></>}{details.food_interactions?.length > 0 && <><h4>Food interactions</h4><ul>{details.food_interactions.map((item, index) => <li key={index}>{item}</li>)}</ul></>}<a href={`https://go.drugbank.com/drugs/${details.drugbank_id}`} target="_blank" rel="noreferrer">Open DrugBank record ↗</a></div> : <div className="insight-empty"><Icon name="book" size={27}/><p>{selectedId ? "Loading details…" : "Choose a medication from your list to view its DrugBank record."}</p></div>}</section>
+      <section className="feature-card detail-card" aria-labelledby="detail-heading"><div className="card-heading"><div><span className="overline">EXPLORE A MEDICATION</span><h2 id="detail-heading">Medication details</h2></div></div>{details ? <div className="drug-details"><h3>{details.name}</h3><p>{details.description || "No description recorded."}</p>{details.indication && <><h4>Recorded indication</h4><p>{details.indication}</p></>}{details.food_interactions?.length > 0 && <><h4>Food interactions</h4><ul>{details.food_interactions.map((item, index) => <li key={index}>{item}</li>)}</ul></>}<a href={`https://go.drugbank.com/drugs/${details.drugbank_id}`} target="_blank" rel="noreferrer">Open DrugBank record ↗</a></div> : <div className="insight-empty"><Icon name="book" size={27}/><p>{selectedId ? "Loading details…" : "Choose a medication from your list to view its DrugBank record."}</p></div>}</section>
       <button className="ask-list-button" onClick={onAsk}><Icon name="conversation" size={20}/>Ask about my medications<Icon name="arrow" size={18}/></button>
     </div>
   </div>;

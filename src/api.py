@@ -28,6 +28,7 @@ from src.utils.drugbank_db import (
     get_food_interactions,
     resolve_drug_name,
 )
+from src.utils.interaction_groups import group_related_warnings
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DIST_DIR = BASE_DIR / "frontend" / "dist"
@@ -129,6 +130,7 @@ async def interactions(request: MedicationRequest) -> dict[str, Any]:
     return {
         "drugs_checked": [brief(drug) for drug in drugs],
         "interactions": matches,
+        "warning_groups": group_related_warnings(matches),
         "has_interactions": bool(matches),
     }
 
@@ -267,6 +269,24 @@ def drug_link(drug: dict[str, Any]) -> str:
     return f"[{drug['name']}](https://go.drugbank.com/drugs/{drug['drugbank_id']})"
 
 
+def warning_group_answer(groups: list[dict[str, Any]]) -> str:
+    """Describe repeated record wording, with the pairs that support each theme."""
+    sections = []
+    for group in groups[:5]:
+        pairs = group["pairs"]
+        evidence = [
+            f"- {item['drug_name']} + {item['interacting_drug_name']}: "
+            f"{clip(item['description'], 250)}"
+            for item in pairs[:5]
+        ]
+        if len(pairs) > 5:
+            evidence.append(f"- {len(pairs) - 5} more recorded pairs")
+        sections.append(
+            f"**{group['title']} — {len(pairs)} pairs**\n" + "\n".join(evidence)
+        )
+    return "\n\n".join(sections)
+
+
 def sentinel_context(drugs: list[dict[str, Any]]) -> str:
     records: list[str] = []
     for drug in drugs[:5]:
@@ -283,8 +303,7 @@ def sentinel_context(drugs: list[dict[str, Any]]) -> str:
             fields.append(f"Indication: {clip(details['indication'], 160)}")
         if foods:
             fields.append(
-                "Food interactions: "
-                + "; ".join(clip(item, 100) for item in foods[:2])
+                "Food interactions: " + "; ".join(clip(item, 100) for item in foods[:2])
             )
         records.append("\n".join(fields))
     return "\n\n---\n\n".join(records)
@@ -353,9 +372,40 @@ def answer_question(
     subject = named or selected or context
     ids = [drug["drugbank_id"] for drug in subject]
 
-    if any(
-        word in question
-        for word in ("side effect", "adverse", "dose", "dosage", "how much", "pregnan")
+    group_question = any(
+        phrase in question
+        for phrase in (
+            "shared warning",
+            "related warning",
+            "common warning",
+            "combined effect",
+            "compounding",
+            "cumulative",
+            "overall risk",
+            "group risk",
+            "warning pattern",
+            "risk pattern",
+        )
+    ) or (
+        any(word in question for word in ("risk", "warning", "side effect"))
+        and any(
+            phrase in question
+            for phrase in (
+                "my list",
+                "my medications",
+                "my meds",
+                "multiple medications",
+                "all my medications",
+            )
+        )
+    )
+    interaction_question = any(
+        word in question for word in ("interact", "combination", "together", "mix")
+    )
+
+    if any(word in question for word in ("dose", "dosage", "how much", "pregnan")) or (
+        any(word in question for word in ("side effect", "adverse"))
+        and not (group_question or interaction_question)
     ):
         return AssistantReply(
             answer="This DrugBank extract does not include a complete, patient-specific answer to that question. Ask a pharmacist or clinician, and consult the medication's official label. I can help with recorded interactions, food interactions, and general drug descriptions.",
@@ -380,7 +430,7 @@ def answer_question(
                 )
             )
         return AssistantReply(answer="\n\n".join(sections), referenced_drug_ids=ids)
-    if any(word in question for word in ("interact", "combination", "together", "mix")):
+    if group_question or interaction_question:
         if len(named) >= 2:
             target = named
         elif named and selected:
@@ -403,12 +453,47 @@ def answer_question(
                 + ". This does not establish that the combination is safe; the database may be incomplete for your situation.",
                 referenced_drug_ids=target_ids,
             )
+        groups = group_related_warnings(matches)
+        if group_question:
+            lead = (
+                "**Shared warning themes** — wording repeated across different "
+                "pairwise DrugBank records. This does not measure the combined "
+                "effect of all your medications.\n\n"
+            )
+            if groups:
+                answer = lead + warning_group_answer(groups)
+            else:
+                answer = (
+                    lead + f"No specific theme is repeated across two different pairs. "
+                    f"There are {len(matches)} recorded pairwise interactions; "
+                    "this does not rule out combined effects.\n\n"
+                    + "\n\n".join(
+                        f"**{item['drug_name']} + {item['interacting_drug_name']}** — "
+                        f"{clip(item['description'], 250)}"
+                        for item in matches[:4]
+                    )
+                )
+            return AssistantReply(
+                answer=answer
+                + "\n\nReview the full pairwise warnings with a pharmacist.",
+                referenced_drug_ids=target_ids,
+            )
         lines = [
             f"**{item['drug_name']} + {item['interacting_drug_name']}** — {clip(item['description'], 600)}"
             for item in matches[:8]
         ]
         return AssistantReply(
-            answer="Recorded interactions for "
+            answer=(
+                "**Shared warning themes:** "
+                + "; ".join(
+                    f"{group['title']} ({len(group['pairs'])} pairs)"
+                    for group in groups[:5]
+                )
+                + ". These repeat across pairwise records; they are not a measured combined effect.\n\n"
+                if groups
+                else ""
+            )
+            + "Recorded interactions for "
             + ", ".join(drug_link(drug) for drug in target)
             + ":\n\n"
             + "\n\n".join(lines)
@@ -473,6 +558,7 @@ if DIST_DIR.is_dir():
             return FileResponse(target)
         return FileResponse(DIST_DIR / "index.html")
 else:
+
     @app.get("/", include_in_schema=False)
     async def web_app_fallback() -> dict[str, str]:
         return {"message": "Build the frontend or start the Vite development server."}

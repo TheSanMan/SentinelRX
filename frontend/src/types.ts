@@ -11,6 +11,12 @@ export interface Interaction {
   description: string;
 }
 
+export interface WarningGroup {
+  key: string;
+  title: string;
+  pairs: Interaction[];
+}
+
 export interface DrugMatch extends Medication {
   match_score: number;
   matched_term?: string | null;

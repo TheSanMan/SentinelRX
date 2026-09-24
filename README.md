@@ -7,9 +7,9 @@ SentinelRX is a medication reference workspace. Search a DrugBank-backed catalog
 ## Features
 
 - Search by medication name and add matches to a local list.
-- Review recorded interactions among medications in that list.
+- Review recorded interactions among medications in that list. With three or more medications, repeated warning themes appear above the pairwise records, with each supporting pair visible on expansion. These themes do not calculate a combined effect or severity score.
 - Take or upload a label photo and confirm OCR matches before adding them.
-- Ask Sentinel about medications and your list. Direct interaction and food questions use database records; general questions can use a small local language model with retrieved records.
+- Ask Sentinel about medications and your list. Questions about shared warnings, direct interactions, and food use database records; general questions can use a small local language model with retrieved records.
 - Install the website on an iPhone from Safari with **Share → Add to Home Screen**.
 
 The website is public and has no account requirement. Medication lists are saved in each browser's local storage; they do not sync across devices. The database and model run on the server. Search, scanning, and answers require an internet connection. Reference data can be incomplete; confirm medication decisions with a pharmacist or clinician.
